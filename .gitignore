@@ -52,6 +52,7 @@ test-output/
 # Local application config
 application-local.properties
 application-local.yml
+data.json
 
 # Persistence files that might be created during testing
 *.dat
