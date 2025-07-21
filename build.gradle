@@ -1,0 +1,68 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.interview'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // For testing
+    testImplementation 'junit:junit:4.13.2'
+    
+    // For persistence
+    implementation 'com.google.code.gson:gson:2.10.1'
+    
+    // For more efficient collections
+    implementation 'com.google.guava:guava:31.1-jre'
+    implementation 'org.projectlombok:lombok:1.18.28'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
+
+
+
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+application {
+    mainClassName = 'com.interview.timeseries.Main'
+}
+
+// For creating a standalone JAR file
+tasks.register('uberJar', Jar) {
+    archiveClassifier = 'uber'
+    
+    from sourceSets.main.output
+
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.findAll { it.name.endsWith('jar') }.collect { zipTree(it) }
+    }
+}
+
+// For creating a ZIP file with the project
+tasks.register('packageSkeleton', Zip) {
+    from projectDir
+    include 'src/**'
+    include 'gradle/**'
+    include 'build.gradle'
+    include 'gradlew'
+    include 'gradlew.bat'
+    include 'README.md'
+    include 'settings.gradle'
+    archiveFileName = 'timeseries-store-skeleton.zip'
+    destinationDirectory = file("${buildDir}/dist")
+}
+
+// Wrapper task
+wrapper {
+    gradleVersion = '7.6'
+}
