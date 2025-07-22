@@ -1,14 +1,9 @@
 package com.interview.timeseries;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.*;
 
-import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -19,14 +14,9 @@ public class TimeSeriesStoreBenchmarkTest {
     private static TimeSeriesStoreImpl store;
 
     @BeforeClass
-    public static void setup() throws Exception {
+    public static void setup() {
         store = new TimeSeriesStoreImpl();
         store.initialize();
-
-        String smallDataFile = "small_data.json";
-        if (Files.exists(Paths.get(smallDataFile))) {
-            loadFromJsonFile(smallDataFile, store);
-        }
     }
 
     @AfterClass
@@ -140,18 +130,6 @@ public class TimeSeriesStoreBenchmarkTest {
         System.out.printf("Retention cleanup: hasOldData=%b, hasNewData=%b\n", hasOldData, hasNewData);
         assertFalse("Old data should be removed by retention cleanup", hasOldData);
         assertTrue("Recent data should be retained", hasNewData);
-    }
-
-    private static void loadFromJsonFile(String filePath, TimeSeriesStoreImpl store) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        List<DataPoint> points = mapper.readValue(
-                new File(filePath),
-                new TypeReference<>() {
-                }
-        );
-        for (DataPoint dp : points) {
-            store.insert(dp.getTimestamp(), dp.getMetric(), dp.getValue(), dp.getTags());
-        }
     }
 
 }
