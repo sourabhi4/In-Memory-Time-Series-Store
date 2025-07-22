@@ -2,6 +2,7 @@ package com.interview.timeseries;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,19 +15,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Implementation of the TimeSeriesStore interface.
- * 
+ *
  * This is a skeleton implementation that needs to be completed.
  */
 public class TimeSeriesStoreImpl implements TimeSeriesStore {
 
-    private final long RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
+    private final long RETENTION_MS = 24 * 60 * 60 * 1000;
     private static final String WAL_FILE = "wal.log";
     private final ObjectMapper mapper = new ObjectMapper();
     private final ConcurrentHashMap<String, ConcurrentSkipListMap<Long, List<DataPoint>>> store = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final BlockingQueue<DataPoint> walQueue = new LinkedBlockingQueue<>();
-    private volatile boolean running = true;
     private final Timer retentionTimer = new Timer("RetentionCleaner", true);
+
+    private BufferedWriter walWriter;
+    private final Object walWriteLock = new Object();
 
     @Override
     public boolean insert(long timestamp, String metric, double value, Map<String, String> tags) {
@@ -42,28 +44,57 @@ public class TimeSeriesStoreImpl implements TimeSeriesStore {
             lock.writeLock().unlock();
         }
 
-        walQueue.offer(dp);
-        return true;
+        return writeToWAL(dp);
+    }
+
+    private boolean writeToWAL(DataPoint dp) {
+        synchronized (walWriteLock) {
+            try {
+                if (walWriter == null) {
+                    walWriter = Files.newBufferedWriter(Paths.get(WAL_FILE),
+                            StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                }
+
+                String json = mapper.writeValueAsString(dp);
+                walWriter.write(json);
+                walWriter.newLine();
+                walWriter.flush();
+                return true;
+            } catch (IOException e) {
+                System.err.println("WAL write error: " + e.getMessage());
+                e.printStackTrace();
+                return false;
+            }
+        }
     }
 
     @Override
     public boolean initialize() {
         lock.writeLock().lock();
         try {
-            Path walPath = Paths.get(WAL_FILE);
+            Path path = Paths.get(WAL_FILE);
+            walWriter = Files.newBufferedWriter(path,
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+
+            Path walPath = path;
             if (Files.exists(walPath)) {
                 List<String> lines = Files.readAllLines(walPath, StandardCharsets.UTF_8);
+                System.out.println("Loading " + lines.size() + " entries from WAL");
+
                 for (String line : lines) {
+                    if (line.trim().isEmpty()) continue;
                     try {
                         DataPoint dp = mapper.readValue(line, DataPoint.class);
-                        insert(dp.getTimestamp(), dp.getMetric(), dp.getValue(), dp.getTags());
+                        store
+                                .computeIfAbsent(dp.getMetric(), m -> new ConcurrentSkipListMap<>())
+                                .computeIfAbsent(dp.getTimestamp(), t -> Collections.synchronizedList(new ArrayList<>()))
+                                .add(dp);
                     } catch (Exception e) {
-                        System.err.println("WAL parse error: " + line);
+                        System.err.println("WAL parse error for line: " + line + " - " + e.getMessage());
                     }
                 }
+                System.out.println("Loaded data from WAL successfully");
             }
-
-            startWALWriter();
 
             retentionTimer.scheduleAtFixedRate(new TimerTask() {
                 @Override
@@ -74,6 +105,7 @@ public class TimeSeriesStoreImpl implements TimeSeriesStore {
 
             return true;
         } catch (IOException e) {
+            System.err.println("Failed to initialize WAL writer: " + e.getMessage());
             e.printStackTrace();
             return false;
         } finally {
@@ -83,52 +115,28 @@ public class TimeSeriesStoreImpl implements TimeSeriesStore {
 
     @Override
     public boolean shutdown() {
-        lock.writeLock().lock();
         try {
-            running = false;
             retentionTimer.cancel();
 
-            List<String> allPoints = new ArrayList<>();
-            for (Map.Entry<String, ConcurrentSkipListMap<Long, List<DataPoint>>> entry : store.entrySet()) {
-                for (List<DataPoint> points : entry.getValue().values()) {
-                    for (DataPoint dp : points) {
-                        allPoints.add(mapper.writeValueAsString(dp));
+            synchronized (walWriteLock) {
+                if (walWriter != null) {
+                    try {
+                        walWriter.close();
+                        walWriter = null;
+                    } catch (IOException e) {
+                        System.err.println("Error closing WAL writer: " + e.getMessage());
                     }
                 }
             }
 
-            Files.write(Paths.get(WAL_FILE), allPoints, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
+            System.out.println("Store shutdown completed successfully");
             return true;
-        } catch (IOException e) {
+        } catch (Exception e) {
+            System.err.println("Error during shutdown: " + e.getMessage());
             e.printStackTrace();
             return false;
-        } finally {
-            lock.writeLock().unlock();
         }
     }
-
-    private void startWALWriter() {
-        Thread walThread = new Thread(() -> {
-            Path path = Paths.get(WAL_FILE);
-            while (running || !walQueue.isEmpty()) {
-                try {
-                    DataPoint dp = walQueue.poll(1, TimeUnit.SECONDS);
-                    if (dp != null) {
-                        String json = mapper.writeValueAsString(dp);
-                        Files.writeString(path, json + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }, "WAL-Writer");
-
-        walThread.setDaemon(true);
-        walThread.start();
-    }
-
 
     @Override
     public List<DataPoint> query(String metric, long timeStart, long timeEnd, Map<String, String> filters) {
@@ -165,7 +173,6 @@ public class TimeSeriesStoreImpl implements TimeSeriesStore {
 
     private void cleanupOldData() {
         long cutoff = System.currentTimeMillis() - RETENTION_MS;
-
         lock.writeLock().lock();
         try {
             for (ConcurrentSkipListMap<Long, List<DataPoint>> timeMap : store.values()) {

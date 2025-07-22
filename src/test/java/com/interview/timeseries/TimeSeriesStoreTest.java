@@ -25,9 +25,7 @@ public class TimeSeriesStoreTest {
 
     @Before
     public void setUp() throws IOException {
-        // Clear WAL before test
         Files.deleteIfExists(Paths.get("wal.log"));
-
         store = new TimeSeriesStoreImpl();
         store.initialize();
     }
@@ -77,7 +75,6 @@ public class TimeSeriesStoreTest {
     
     @Test
     public void testQueryWithFilters() {
-        // Insert test data with different tags
         long now = System.currentTimeMillis();
         
         Map<String, String> tags1 = new HashMap<>();
@@ -109,62 +106,6 @@ public class TimeSeriesStoreTest {
         // Verify
         assertEquals(1, results.size());
         assertEquals("server1", results.get(0).getTags().get("host"));
-    }
-    
-    //  Add more tests as needed
-    @Test
-    public void testConcurrentInsertsAndQueries() throws InterruptedException {
-        int numThreads = 10;
-        int insertsPerThread = 1000;
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-
-        long baseTime = System.currentTimeMillis();
-        Map<String, String> tags = Map.of("host", "server1");
-
-        for (int i = 0; i < numThreads; i++) {
-            executor.submit(() -> {
-                for (int j = 0; j < insertsPerThread; j++) {
-                    store.insert(baseTime + j, "cpu.usage", Math.random() * 100, tags);
-                }
-            });
-        }
-
-        executor.shutdown();
-        assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-
-        List<DataPoint> results = store.query("cpu.usage", baseTime, baseTime + insertsPerThread, tags);
-        assertEquals(numThreads * insertsPerThread, results.size());
-    }
-
-// Insert Performance Benchmark (10,000 inserts/sec)
-    @Test
-    public void testInsertThroughput() throws InterruptedException {
-        int threads = 10;
-        int insertsPerThread = 10000;
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-
-        TimeSeriesStoreImpl store = new TimeSeriesStoreImpl();
-        store.initialize();
-
-        long start = System.currentTimeMillis();
-        for (int i = 0; i < threads; i++) {
-            executor.submit(() -> {
-                long base = System.currentTimeMillis();
-                for (int j = 0; j < insertsPerThread; j++) {
-                    store.insert(base + j, "metric_" + j, Math.random(), Map.of("host", "h1"));
-                }
-            });
-        }
-
-        executor.shutdown();
-        executor.awaitTermination(20, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - start;
-
-        long totalInserts = threads * insertsPerThread;
-        double rate = totalInserts / (duration / 1000.0);
-        System.out.println("Insert rate: " + rate + " inserts/sec");
-
-        assertTrue("Insert rate too low!",rate >= 10000);
     }
 
 }

@@ -62,7 +62,7 @@ public class TimeSeriesStoreBenchmarkTest {
 
         System.out.printf("Insert throughput: %.2f inserts/sec\n", insertsPerSec);
         assertTrue("Insert threads did not finish in time", finished);
-        assertTrue("Insert throughput below 10,000 inserts/sec", insertsPerSec >= 10000);
+        assertTrue("Insert throughput atLeast 10,000 inserts/sec", insertsPerSec >= 10000);
     }
 
     @Test

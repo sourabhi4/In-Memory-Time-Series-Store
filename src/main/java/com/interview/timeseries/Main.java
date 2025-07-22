@@ -13,26 +13,26 @@ public class Main {
         TimeSeriesStore store = new TimeSeriesStoreImpl();
         boolean initialized = store.initialize();
         System.out.println("Store initialized: " + initialized);
-        
+
         if (!initialized) {
             System.err.println("Failed to initialize the store. Exiting.");
             return;
         }
-        
+
         try {
             // Insert some test data
             long now = System.currentTimeMillis();
             Map<String, String> tags = new HashMap<>();
             tags.put("host", "server1");
             tags.put("datacenter", "us-west");
-            
+
             boolean inserted = store.insert(now, "cpu.usage", 45.2, tags);
             System.out.println("Data inserted: " + inserted);
-            
+
             // Query the data
             List<DataPoint> results = store.query("cpu.usage", now - 1000, now + 1000, null);
             System.out.println("Query results: " + results);
-            
+
             // Query with filters
             Map<String, String> filters = new HashMap<>();
             filters.put("datacenter", "us-west");
